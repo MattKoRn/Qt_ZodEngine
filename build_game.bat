@@ -117,6 +117,12 @@ goto choose_msvc_make
 rem Add the selected MinGW toolchain directory so gcc/g++ are available too.
 for %%M in ("%MAKE_EXE%") do set "MINGW_BIN_DIR=%%~dpM"
 set "PATH=%MINGW_BIN_DIR%;%PATH%"
+
+rem Invoke GNU Make by basename once its directory is on PATH. GNU Make puts the
+rem way it was invoked into the recursive MAKE variable; an absolute path such as
+rem C:\Users\First Last\... would otherwise be emitted unquoted by qmake's
+rem recursive subdir rules and split at the space.
+set "MAKE_EXE=mingw32-make.exe"
 goto run_build
 
 :choose_msvc_make
