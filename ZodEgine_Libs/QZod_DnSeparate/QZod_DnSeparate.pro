@@ -90,9 +90,18 @@ LIBS += \
 ###########################
 ### post copy /include  ###
 ###########################
-for( name, HEADERS ){
-    copyheaders.commands += mkdir -p $${INSTALL_PATH_INCLUDE}/lib$${TARGET};
-    copyheaders.commands += cp --parents $$name $${INSTALL_PATH_INCLUDE}/lib$${TARGET};
+win32 {
+    HEADER_DEST = $$shell_path($${INSTALL_PATH_INCLUDE}/lib$${TARGET})
+    copyheaders.commands = if not exist "$$HEADER_DEST" mkdir "$$HEADER_DEST"
+    for(name, HEADERS) {
+        HEADER_SOURCE = $$shell_path($$PWD/$$name)
+        copyheaders.commands += && copy /Y "$$HEADER_SOURCE" "$$HEADER_DEST" >NUL
+    }
+} else {
+    for(name, HEADERS) {
+        copyheaders.commands += mkdir -p $${INSTALL_PATH_INCLUDE}/lib$${TARGET};
+        copyheaders.commands += cp --parents $$name $${INSTALL_PATH_INCLUDE}/lib$${TARGET};
+    }
 }
 QMAKE_EXTRA_TARGETS += copyheaders
 POST_TARGETDEPS += copyheaders
@@ -100,10 +109,7 @@ POST_TARGETDEPS += copyheaders
 #############################################
 
 
-# The following define makes your compiler emit warnings if you use
-# any feature of Qt which has been marked as deprecated (the exact warnings
-# depend on your compiler). Please consult the documentation of the
-# deprecated API in order to know how to port your code away from it.
+# The following define makes your compiler emit warnings if you use deprecated APIs.
 DEFINES += QT_DEPRECATED_WARNINGS
 
 # You can also make your code fail to compile if you use deprecated APIs.
