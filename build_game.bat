@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 set "ROOT=%~dp0"
 cd /d "%ROOT%" || exit /b 1
@@ -228,17 +228,17 @@ if not exist "%QZOD_MSYS_ROOT%\usr\bin\pacman.exe" (
     )
 
     set "MSYS_EXPECTED_SHA="
-    for /f "tokens=1" %%H in (%QZOD_MSYS_SHA_FILE%) do if not defined MSYS_EXPECTED_SHA set "MSYS_EXPECTED_SHA=%%H"
+    for /f "usebackq tokens=1" %%H in ("%QZOD_MSYS_SHA_FILE%") do if not defined MSYS_EXPECTED_SHA set "MSYS_EXPECTED_SHA=%%H"
     set "MSYS_ACTUAL_SHA="
     for /f "delims=" %%H in ('powershell.exe -NoLogo -NoProfile -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath $env:QZOD_MSYS_INSTALLER).Hash.ToLowerInvariant()"') do set "MSYS_ACTUAL_SHA=%%H"
     if not defined MSYS_EXPECTED_SHA (
         echo ERROR: MSYS2 checksum file was empty or unreadable.
         exit /b 1
     )
-    if /I not "%MSYS_EXPECTED_SHA%"=="%MSYS_ACTUAL_SHA%" (
+    if /I not "!MSYS_EXPECTED_SHA!"=="!MSYS_ACTUAL_SHA!" (
         echo ERROR: The MSYS2 installer failed SHA-256 verification.
-        echo Expected: %MSYS_EXPECTED_SHA%
-        echo Actual:   %MSYS_ACTUAL_SHA%
+        echo Expected: !MSYS_EXPECTED_SHA!
+        echo Actual:   !MSYS_ACTUAL_SHA!
         del "%QZOD_MSYS_INSTALLER%" >nul 2>&1
         del "%QZOD_MSYS_SHA_FILE%" >nul 2>&1
         exit /b 1
