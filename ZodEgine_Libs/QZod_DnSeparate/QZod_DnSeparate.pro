@@ -92,10 +92,12 @@ LIBS += \
 ###########################
 win32 {
     HEADER_DEST = $$shell_path($${INSTALL_PATH_INCLUDE}/lib$${TARGET})
-    copyheaders.commands = if not exist "$$HEADER_DEST" mkdir "$$HEADER_DEST"
+    HEADER_DEST_QUOTED = $$shell_quote($$HEADER_DEST)
+    copyheaders.commands = if not exist $$HEADER_DEST_QUOTED mkdir $$HEADER_DEST_QUOTED
     for(name, HEADERS) {
         HEADER_SOURCE = $$shell_path($$PWD/$$name)
-        copyheaders.commands += && copy /Y "$$HEADER_SOURCE" "$$HEADER_DEST" >NUL
+        HEADER_SOURCE_QUOTED = $$shell_quote($$HEADER_SOURCE)
+        copyheaders.commands += && copy /Y $$HEADER_SOURCE_QUOTED $$HEADER_DEST_QUOTED >NUL
     }
 } else {
     for(name, HEADERS) {
