@@ -4,8 +4,8 @@ setlocal EnableExtensions
 set "ROOT=%~dp0"
 cd /d "%ROOT%" || exit /b 1
 
-rem Project-local bootstrap settings. The Qt SDK itself is installed per-user so
-rem cloning the repository again does not download a second multi-GB toolchain.
+rem Qt bootstrap settings. Qt lives per-user because that path is safe to create
+rem without elevation; GNU Make itself is invoked by basename so spaces there are OK.
 set "QZOD_QT_ROOT=%LOCALAPPDATA%\Qt_ZodEngine\Qt"
 set "QZOD_QMAKE=%QZOD_QT_ROOT%\5.15.2\mingw81_64\bin\qmake.exe"
 set "QZOD_MINGW_BIN=%QZOD_QT_ROOT%\Tools\mingw810_64\bin"
@@ -14,7 +14,19 @@ set "QZOD_AQT_EXE=%QZOD_AQT_DIR%\aqt_x64.exe"
 set "QZOD_AQT_URL=https://github.com/miurahr/aqtinstall/releases/download/v3.3.0/aqt_x64.exe"
 set "QZOD_AQT_SHA256=4f74d4c95c464d238d7e17ec2d9b7f22a7c333f0f5270a62584e2b47fc765150"
 
-echo [1/3] Checking Qt qmake...
+rem Legacy engine dependencies. MSYS2 explicitly recommends a short ASCII path
+rem without spaces, so keep this SDK away from the current user's profile path.
+set "QZOD_MSYS_ROOT=%SystemDrive%\Qt_ZodEngine\msys64"
+set "QZOD_MSYS_ROOT_POSIX=%SystemDrive%/Qt_ZodEngine/msys64"
+set "QZOD_DEPS_ROOT_WIN=%QZOD_MSYS_ROOT%\mingw64"
+set "QZOD_DEPS_ROOT=%SystemDrive%/Qt_ZodEngine/msys64/mingw64"
+set "QZOD_MSYS_INSTALLER=%QZOD_AQT_DIR%\msys2-x86_64-20260611.exe"
+set "QZOD_MSYS_SHA_FILE=%QZOD_MSYS_INSTALLER%.sha256"
+set "QZOD_MSYS_URL=https://github.com/msys2/msys2-installer/releases/download/2026-06-11/msys2-x86_64-20260611.exe"
+set "QZOD_MSYS_SHA_URL=%QZOD_MSYS_URL%.sha256"
+set "QZOD_BUILD_TOOLS=%LOCALAPPDATA%\Qt_ZodEngine\build-tools"
+
+echo [1/4] Checking Qt qmake...
 
 rem Respect an explicitly configured qmake first.
 if defined QMAKE_EXE (
@@ -52,6 +64,10 @@ echo   %QMAKE_EXE%
 for %%Q in ("%QMAKE_EXE%") do set "QT_BIN_DIR=%%~dpQ"
 set "PATH=%QT_BIN_DIR%;%PATH%"
 
+echo [2/4] Checking legacy SDL/MySQL dependencies...
+call :ensure_windows_deps
+if errorlevel 1 exit /b 1
+
 set "BUILD_DIR=%ROOT%build-windows"
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 if errorlevel 1 (
@@ -62,7 +78,7 @@ if errorlevel 1 (
 pushd "%BUILD_DIR%"
 if errorlevel 1 exit /b 1
 
-echo [2/3] Generating Makefiles...
+echo [3/4] Generating Makefiles...
 "%QMAKE_EXE%" "%ROOT%Q_ZodEngine.pro"
 if errorlevel 1 (
     echo ERROR: qmake failed.
@@ -144,7 +160,7 @@ popd
 exit /b 1
 
 :run_build
-echo [3/3] Building Q_ZodEngine with:
+echo [4/4] Building Q_ZodEngine with:
 echo   %MAKE_EXE%
 "%MAKE_EXE%" %MAKE_ARGS%
 if errorlevel 1 (
@@ -158,6 +174,131 @@ echo.
 echo Build completed successfully.
 echo Game binaries and libraries are written to:
 echo   %ROOT%bin
+exit /b 0
+
+:ensure_windows_deps
+rem The current Windows port is Qt-based. Old qmake files still probe wx-config,
+rem but no source file uses wxWidgets; provide a harmless compatibility command
+rem so those stale probes do not spam every recursive qmake invocation.
+if not exist "%QZOD_BUILD_TOOLS%" mkdir "%QZOD_BUILD_TOOLS%"
+if errorlevel 1 (
+    echo ERROR: Could not create the build compatibility directory.
+    exit /b 1
+)
+(
+    echo @echo off
+    echo rem Qt_ZodEngine Windows compatibility shim for stale wx-config probes.
+    echo exit /b 0
+) > "%QZOD_BUILD_TOOLS%\wx-config.bat"
+set "PATH=%QZOD_BUILD_TOOLS%;%PATH%"
+
+if exist "%QZOD_DEPS_ROOT_WIN%\include\SDL\SDL.h" if exist "%QZOD_DEPS_ROOT_WIN%\lib\libSDL.dll.a" if exist "%QZOD_DEPS_ROOT_WIN%\lib\libmysqlclient.dll.a" goto deps_have_packages
+
+if /I "%QZOD_AUTO_INSTALL_DEPS%"=="0" (
+    echo ERROR: Required Windows SDL/MySQL development libraries are missing.
+    echo Automatic dependency installation is disabled because QZOD_AUTO_INSTALL_DEPS=0.
+    exit /b 1
+)
+
+if not exist "%QZOD_AQT_DIR%" mkdir "%QZOD_AQT_DIR%"
+if errorlevel 1 (
+    echo ERROR: Could not create bootstrap directory:
+    echo   %QZOD_AQT_DIR%
+    exit /b 1
+)
+
+if not exist "%QZOD_MSYS_ROOT%\usr\bin\pacman.exe" (
+    echo Legacy dependencies are missing. Installing a private MSYS2 package root...
+    echo   %QZOD_MSYS_ROOT%
+    echo.
+
+    if not exist "%QZOD_MSYS_INSTALLER%" (
+        echo Downloading MSYS2 20260611 installer...
+        powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:QZOD_MSYS_URL -OutFile $env:QZOD_MSYS_INSTALLER; Invoke-WebRequest -UseBasicParsing -Uri $env:QZOD_MSYS_SHA_URL -OutFile $env:QZOD_MSYS_SHA_FILE"
+        if errorlevel 1 (
+            echo ERROR: Could not download the MSYS2 installer or checksum.
+            exit /b 1
+        )
+    ) else if not exist "%QZOD_MSYS_SHA_FILE%" (
+        powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri $env:QZOD_MSYS_SHA_URL -OutFile $env:QZOD_MSYS_SHA_FILE"
+        if errorlevel 1 (
+            echo ERROR: Could not download the MSYS2 checksum.
+            exit /b 1
+        )
+    )
+
+    set "MSYS_EXPECTED_SHA="
+    for /f "tokens=1" %%H in (%QZOD_MSYS_SHA_FILE%) do if not defined MSYS_EXPECTED_SHA set "MSYS_EXPECTED_SHA=%%H"
+    set "MSYS_ACTUAL_SHA="
+    for /f "delims=" %%H in ('powershell.exe -NoLogo -NoProfile -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath $env:QZOD_MSYS_INSTALLER).Hash.ToLowerInvariant()"') do set "MSYS_ACTUAL_SHA=%%H"
+    if not defined MSYS_EXPECTED_SHA (
+        echo ERROR: MSYS2 checksum file was empty or unreadable.
+        exit /b 1
+    )
+    if /I not "%MSYS_EXPECTED_SHA%"=="%MSYS_ACTUAL_SHA%" (
+        echo ERROR: The MSYS2 installer failed SHA-256 verification.
+        echo Expected: %MSYS_EXPECTED_SHA%
+        echo Actual:   %MSYS_ACTUAL_SHA%
+        del "%QZOD_MSYS_INSTALLER%" >nul 2>&1
+        del "%QZOD_MSYS_SHA_FILE%" >nul 2>&1
+        exit /b 1
+    )
+
+    powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -LiteralPath $env:QZOD_MSYS_INSTALLER" >nul 2>&1
+    "%QZOD_MSYS_INSTALLER%" in --confirm-command --accept-messages --root "%QZOD_MSYS_ROOT_POSIX%"
+    if errorlevel 1 (
+        echo ERROR: MSYS2 installation failed.
+        exit /b 1
+    )
+)
+
+if not exist "%QZOD_MSYS_ROOT%\msys2_shell.cmd" (
+    echo ERROR: MSYS2 was installed incompletely.
+    exit /b 1
+)
+
+echo Updating the private MSYS2 package database/runtime...
+call "%QZOD_MSYS_ROOT%\msys2_shell.cmd" -defterm -no-start -msys -c "pacman -Syu --noconfirm"
+if errorlevel 1 (
+    echo ERROR: MSYS2 base update failed.
+    exit /b 1
+)
+rem A second pass is intentional: MSYS2 core/runtime updates can require a new shell.
+call "%QZOD_MSYS_ROOT%\msys2_shell.cmd" -defterm -no-start -msys -c "pacman -Syu --noconfirm"
+if errorlevel 1 (
+    echo ERROR: MSYS2 second update pass failed.
+    exit /b 1
+)
+
+echo Installing SDL 1.2, SDL_image, SDL_ttf, SDL_mixer and MySQL-compatible client libraries...
+call "%QZOD_MSYS_ROOT%\msys2_shell.cmd" -defterm -no-start -mingw64 -c "pacman -S --needed --noconfirm mingw-w64-x86_64-SDL mingw-w64-x86_64-SDL_image mingw-w64-x86_64-SDL_ttf mingw-w64-x86_64-SDL_mixer mingw-w64-x86_64-libmariadbclient"
+if errorlevel 1 (
+    echo ERROR: Installing legacy engine dependencies failed.
+    exit /b 1
+)
+
+:deps_have_packages
+if not exist "%QZOD_DEPS_ROOT_WIN%\include\SDL\SDL.h" (
+    echo ERROR: SDL/SDL.h is still missing after dependency setup.
+    exit /b 1
+)
+if not exist "%QZOD_DEPS_ROOT_WIN%\lib\libmysqlclient.dll.a" if not exist "%QZOD_DEPS_ROOT_WIN%\lib\libmysqlclient.a" (
+    echo ERROR: MySQL-compatible import library is still missing after dependency setup.
+    exit /b 1
+)
+
+rem The original Linux qmake files link -lGL. MinGW exposes the Windows OpenGL
+rem import library as libopengl32.a, so add a compatibility alias in our SDK lib dir.
+if not exist "%QZOD_DEPS_ROOT_WIN%\lib\libGL.a" (
+    for /r "%QZOD_QT_ROOT%\Tools\mingw810_64" %%G in (libopengl32.a) do if not exist "%QZOD_DEPS_ROOT_WIN%\lib\libGL.a" copy /y "%%G" "%QZOD_DEPS_ROOT_WIN%\lib\libGL.a" >nul
+)
+if not exist "%QZOD_DEPS_ROOT_WIN%\lib\libGL.a" (
+    echo ERROR: Could not create the MinGW compatibility alias for -lGL.
+    exit /b 1
+)
+
+echo Dependency SDK ready:
+echo   %QZOD_DEPS_ROOT_WIN%
 exit /b 0
 
 :bootstrap_qt
