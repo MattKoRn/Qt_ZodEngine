@@ -30,6 +30,12 @@ INCLUDEPATH += $${ROOT_DIR}
 # this in common.pri makes the old SDL/MySQL linker declarations in every
 # subproject resolve without duplicating machine-specific paths.
 win32 {
+    # The legacy engine passes narrow std::string/char* paths to Win32 APIs.
+    # Qt's MinGW mkspec enables UNICODE by default, which remaps calls such as
+    # FindFirstFile to their wide-character variants and breaks those call sites.
+    # Keep the legacy Win32 API aliases ANSI until path handling is migrated.
+    DEFINES -= UNICODE _UNICODE
+
     QZOD_DEPS_ROOT = $$(QZOD_DEPS_ROOT)
     !isEmpty(QZOD_DEPS_ROOT) {
         INCLUDEPATH += "$${QZOD_DEPS_ROOT}/include"
