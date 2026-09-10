@@ -64,6 +64,14 @@ echo   %QMAKE_EXE%
 for %%Q in ("%QMAKE_EXE%") do set "QT_BIN_DIR=%%~dpQ"
 set "PATH=%QT_BIN_DIR%;%PATH%"
 
+rem qmake's MinGW mkspec probes g++ while generating the first Makefile. When
+rem this project's already-installed Qt SDK is rediscovered above, bootstrap_qt
+rem is skipped, so make sure its matching compiler is installed and on PATH now.
+if /I "%QT_BIN_DIR%"=="%QZOD_QT_ROOT%\5.15.2\mingw81_64\bin\" (
+    if not exist "%QZOD_MINGW_BIN%\g++.exe" goto bootstrap_qt
+    set "PATH=%QZOD_MINGW_BIN%;%PATH%"
+)
+
 echo [2/4] Checking legacy SDL/MySQL dependencies...
 call :ensure_windows_deps
 if errorlevel 1 exit /b 1
